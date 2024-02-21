@@ -322,16 +322,13 @@ class PerturbationExperiment:
             deleted_edge_graph[edge,edge[::-1]] = 1
 
         info_loss = info_loss[np.argsort(-info_loss[:,-1])]
-        print(info_loss)
         difference = np.diff(info_loss[:, -1])
-        print(difference)
         difference_filter = [False]
         difference_filter.extend(np.isin(
             np.arange(len(difference)),
             np.where(abs(difference - np.log2(2)) > auxiliary_cutoff)
         ))
 
-        # print(difference_filter)
         if (not any(difference_filter)):
             return self.X
         
