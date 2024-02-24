@@ -26,7 +26,7 @@ def create_random_graph(num_nodes=4, probability = 0.5):
     np.fill_diagonal(adj_matrix, 0)
     return np.triu(adj_matrix) + np.tril(adj_matrix.T)
 
-def combine_two_graphs(first_graph, second_graph, num_nodes=4):
+def combine_two_graphs(first_graph, second_graph, num_nodes=4, randomize=False):
     real_nodes = num_nodes*2
     total_nodes = real_nodes# + 1
     main_graph = np.zeros((total_nodes, total_nodes), dtype=int)
@@ -39,13 +39,18 @@ def combine_two_graphs(first_graph, second_graph, num_nodes=4):
         second_graph
     ).astype(int)
     main_graph[0, -1] = 1
-    main_graph[real_nodes-1, -1] = 1
+    main_graph[-1, 0] = 1
+    # main_graph[real_nodes-1, -1] = 1
+    # main_graph[-1, real_nodes-1] = 1
     return main_graph
 
-nodes = 22
+
+nodes = 20
 A = create_random_graph(nodes)
+#print(A)
 B = create_complete_graph(nodes)
-X = combine_two_graphs(A, B, nodes)
+#print(B)
+X = combine_two_graphs(A, B, num_nodes=nodes)
 #print(X)
 # print(np.column_stack(np.nonzero(X)))
 original_graph = np.copy(X)

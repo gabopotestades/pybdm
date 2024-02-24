@@ -307,12 +307,12 @@ class PerturbationExperiment:
         
         return self.X
 
-    def deconvolve_cutoff(self, auxiliary_cutoff=1, keep_changes=False):
+    def deconvolve_cutoff(self, auxiliary_cutoff=0, keep_changes=False):
 
         info_loss = np.empty((0, 3), dtype=int)
         deleted_edge_graph = np.copy(self.X)
         nonzero_edges =  np.column_stack(np.nonzero(np.triu(deleted_edge_graph)))
-
+        
         for edge in nonzero_edges:
             deleted_edge_graph[edge,edge[::-1]] = 0
             deleted_edge_bdm = self.bdm.bdm(deleted_edge_graph)
@@ -322,13 +322,16 @@ class PerturbationExperiment:
             deleted_edge_graph[edge,edge[::-1]] = 1
 
         info_loss = info_loss[np.argsort(-info_loss[:,-1])]
-        difference = np.diff(info_loss[:, -1])
+        #print(info_loss)
+        difference = np.diff(info_loss[:, -1]) * -1
+        print(difference)
         difference_filter = [False]
         difference_filter.extend(np.isin(
             np.arange(len(difference)),
             np.where(abs(difference - np.log2(2)) > auxiliary_cutoff)
         ))
 
+        #print(difference_filter)
         if (not any(difference_filter)):
             return self.X
         
