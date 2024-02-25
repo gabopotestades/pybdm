@@ -2,11 +2,12 @@ import numpy as np
 import random
 from pybdm import BDM
 from pybdm.algorithms import PerturbationExperiment
-from networkx import from_numpy_array, draw, selfloop_edges, number_connected_components, number_of_edges
-from matplotlib.pyplot import savefig, clf, title
-from itertools import product
+from community import community_louvain
+import networkx as nx
+import matplotlib.pyplot as plt
+import netgraph as ng
 
-def check_symmetric(a, rtol=1e-05, atol=1e-08):
+def check_symmetry(a, rtol=1e-05, atol=1e-08):
     return np.allclose(a, a.T, rtol=rtol, atol=atol)    
 
 def create_complete_graph(num_nodes=4):
@@ -28,96 +29,120 @@ def create_random_graph(num_nodes=4, probability = 0.5):
 
 def combine_two_graphs(first_graph, second_graph, num_nodes=4, randomize=False):
     real_nodes = num_nodes*2
-    total_nodes = real_nodes# + 1
-    main_graph = np.zeros((total_nodes, total_nodes), dtype=int)
-    main_graph[:num_nodes, :num_nodes] = np.logical_or(
-        main_graph[:num_nodes, :num_nodes],
+    total_nodes = real_nodes
+    G = np.zeros((total_nodes, total_nodes), dtype=int)
+    G[:num_nodes, :num_nodes] = np.logical_or(
+        G[:num_nodes, :num_nodes],
         first_graph
     ).astype(int)
-    main_graph[num_nodes:real_nodes, num_nodes:real_nodes] = np.logical_or(
-        main_graph[num_nodes:real_nodes, num_nodes:real_nodes],
+    G[num_nodes:real_nodes, num_nodes:real_nodes] = np.logical_or(
+        G[num_nodes:real_nodes, num_nodes:real_nodes],
         second_graph
     ).astype(int)
-    main_graph[0, -1] = 1
-    main_graph[-1, 0] = 1
-    # main_graph[real_nodes-1, -1] = 1
-    # main_graph[-1, real_nodes-1] = 1
-    return main_graph
+    G[0, -1] = 1
+    G[-1, 0] = 1
 
+    new_arrange = list(range(real_nodes))
+    random.shuffle(new_arrange)
+    return G[new_arrange][:, new_arrange]
 
-nodes = 20
+def draw_graph(G, colored_edges, filename, edge_layout='curved'):
+    node_to_community = community_louvain.best_partition(G)
+    community_values = set(node_to_community.values())
+    color_mapping = {
+        0 : 'tab:blue',
+        1 : 'tab:orange',
+        2 : 'tab:green',
+        3 : 'tab:red',
+        4 : 'tab:purple', 
+        5 : 'tab:brown', 
+        6 : 'tab:pink', 
+        7 : 'tab:gray', 
+        8 : 'tab:olive', 
+        9 : 'tab:cyan'
+    }
+    community_to_color = { c : color_mapping[c % 9] for c in community_values}
+    node_color = {node: community_to_color[community_id] for node, community_id in node_to_community.items()}
+    edges_coords = [tuple(coord) for coord in colored_edges]
+    edge_colors = dict([((u, v), '#ff0000') if (u, v) in edges_coords else ((u, v), '#2c404c') for u, v in G.edges()])
+
+    plt.figure(dpi=200)
+    ng.Graph(G,
+        node_color=node_color, node_edge_width=0, edge_alpha=0.1, node_labels = True,
+        node_layout='community', node_layout_kwargs=dict(node_to_community=node_to_community),
+        edge_layout=edge_layout, edge_layout_kwargs=dict(k=2000), edge_color=edge_colors,
+    )
+    plt.title(f'Subgraphs = {nx.number_connected_components(G)}, Edges = {nx.number_of_edges(G)}')
+    plt.savefig(filename)
+    plt.clf()
+
+def draw_info_signature_graph(info_loss, difference, auxiliary_cutoff):
+    print(f'Info Loss Size: {info_loss[:,-1].shape}')
+    info_loss_xval = np.array([i for i in range(len(info_loss[:,-1]))])
+    info_loss_yval = info_loss[:,-1]
+
+    edges_xval = np.array([i for i in range(len(difference))])
+    difference_values = difference
+    aux_cutoff_yval = np.array([auxiliary_cutoff + np.log2(2) for _ in range(len(difference))])
+
+    plt.plot(info_loss_xval, info_loss_yval, 'red', marker = 'o')
+    plt.plot(edges_xval, difference_values, 'blue', marker = 's')
+    plt.plot(edges_xval, aux_cutoff_yval, 'orange', linestyle='dotted')
+    plt.legend(['information signature', 'difference', 'log(2) + epsilon'], loc="upper right")
+    plt.title(f'Information Signature and Differences')
+    plt.savefig('Information Signatures.png')
+    plt.clf()
+
+nodes = 16
 A = create_random_graph(nodes)
-#print(A)
 B = create_complete_graph(nodes)
-#print(B)
 X = combine_two_graphs(A, B, num_nodes=nodes)
-#print(X)
-# print(np.column_stack(np.nonzero(X)))
+
 original_graph = np.copy(X)
 perturbation = PerturbationExperiment(BDM(ndim=2), X, metric='bdm')
-# orig_value = perturbation._value
-# new_value = perturbation.run(idx=np.array([[0,1]]))
-# print(orig_value)
-# print(new_value)
+auxiliary_cutoff = 1
 
 #deco = perturbation.deconvolve(2)
-deco = perturbation.deconvolve_cutoff()
-# print(original_graph)
-# print(perturbation.X)
-# print(deco)
+deco, info_loss, difference, deleted_edges = perturbation.deconvolve_cutoff(auxiliary_cutoff=auxiliary_cutoff)
 
+# Checking
 print(f'Original graph is equal: {np.array_equal(original_graph, perturbation.X)}')
 print(f'Result is same with X: {np.array_equal(deco, perturbation.X)}')
-print(f'Symmetrical: {check_symmetric(perturbation.X)}')
+print(f'Symmetrical: {check_symmetry(perturbation.X)}')
 
-orig_graph = from_numpy_array(original_graph)
-orig_graph.remove_edges_from(selfloop_edges(orig_graph))
+# Setup graphs for drawing
+orig_graph = nx.from_numpy_array(original_graph)
+deconvolve_graph = nx.from_numpy_array(deco)
+edge_layout = 'curved'
+draw_graph(orig_graph, deleted_edges, 'Original Graph.png', edge_layout=edge_layout)
+draw_graph(deconvolve_graph, deleted_edges, 'Deconvoluted Graph.png', edge_layout=edge_layout)
 
-deconvolve_graph = from_numpy_array(deco)
-deconvolve_graph.remove_edges_from(selfloop_edges(deconvolve_graph))
+# Create Information Signature Graph
+draw_info_signature_graph(info_loss, difference, auxiliary_cutoff)
 
-title(f'Subgraphs = {number_connected_components(orig_graph)}, Edges = {number_of_edges(orig_graph)}')
-draw(orig_graph, with_labels = True)
-savefig("orig.png")
-clf()
-title(f'Subgraphs = {number_connected_components(deconvolve_graph)}, Edges = {number_of_edges(deconvolve_graph)}')
-draw(deconvolve_graph, with_labels = True)
-savefig("deco.png")
+# Color high info loss edges
+# edges_coords = [tuple(coord) for coord in top_loss]
+# edge_colors = ['red' if (u, v) in edges_coords else 'black' for u, v in orig_graph.edges()]
 
-# A = np.array([
-#     [0, 1, 1, 0],
-#     [1, 0, 0, 1],
-#     [1, 0, 0, 1],
-#     [0, 1, 1, 0]], dtype=int)
-# perturbation = PerturbationExperiment(BDM(ndim=2), A, metric='bdm')
-# #idxer = np.array([[0,1], [0,2]], dtype=int)
-# #valuer = np.array([0,0], dtype=int)
+# # Draw Original Graph
+# axis('off')
+# pos = nx.spring_layout(orig_graph, k=0.15, iterations=30)
+# orig_nodes = nx.draw_networkx_nodes(orig_graph, pos=pos)
+# orig_nodes.set_edgecolor('w')
+# nx.draw_networkx_edges(orig_graph, pos=pos, edge_color=edge_colors)
+# nx.draw_networkx_labels(orig_graph, pos=pos, font_size=10)
+# title(f'Subgraphs = {nx.number_connected_components(orig_graph)}, Edges = {nx.number_of_edges(orig_graph)}')
+# savefig("Original Graph.png")
 
-# valuer=np.full(A.shape[0]**2, 0, dtype=int)
-# idxer = np.where(A > -1)
-# idxer = np.array([idxer[0], idxer[1]]).T
+# clf()
 
-# # tester = perturbation.run(idx=idxer, values=valuer)
-# # print(tester)
-# indexes = [ range(k) for k in A.shape ]
-# idx = np.array([ x for x in product(*indexes) ], dtype=int)
-# conncater=np.column_stack((idx, valuer))
-# res = np.apply_along_axis(
-#             lambda r: tuple(r[:-1]),
-#             axis=1,
-#             arr=conncater
-#         )
-# print(res)
-# # test_graph = from_numpy_array(A)
-# test_graph.remove_edges_from(selfloop_edges(test_graph))
-# draw(test_graph, with_labels = True)
-# savefig("test.png")
-
-
-# B = np.arange(16).reshape(4,-1)
-# query = (np.array([], dtype=int), np.array([], dtype=int))
-# query2 = np.where(B%2 == 1)
-# print(B[query2])
-# res = (np.concatenate((query[0], query2[0])), np.concatenate((query[1], query2[1])))
-# print(res[0])
-# print(res[1])
+# # Draw Deconvolved Graph
+# axis('off')
+# edge_colors = ['red' if (u, v) in edges_coords else 'black' for u, v in deconvolve_graph.edges()]
+# pos = nx.spring_layout(deconvolve_graph, k=0.15, iterations=20)
+# decon_nodes = nx.draw_networkx_nodes(deconvolve_graph, pos=pos)
+# decon_nodes.set_edgecolor('w')
+# nx.draw_networkx_edges(deconvolve_graph, pos=pos, edge_color=edge_colors)
+# nx.draw_networkx_labels(deconvolve_graph, pos=pos, font_size=10)
+# title(f'Subgraphs = {nx.number_connected_components(deconvolve_graph)}, Edges = {nx.number_of_edges(deconvolve_graph)}')
+# savefig("Deconvoluted Graph.png")
