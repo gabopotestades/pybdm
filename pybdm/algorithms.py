@@ -303,11 +303,11 @@ class PerturbationExperiment:
             deconvoluted_graph = np.copy(self.X)
             self.X[original_idx[:,0],original_idx[:,1]] = 1
             self.set_data(self.X)
-            return deconvoluted_graph
+            return deconvoluted_graph, info_loss, None, edges_for_deletion
         
-        return self.X
+        return self.X, info_loss, None, edges_for_deletion
 
-    def deconvolve_cutoff(self, auxiliary_cutoff=0, keep_changes=False):
+    def deconvolve_cutoff(self, auxiliary_cutoff=None, keep_changes=False):
 
         info_loss = np.empty((0, 3), dtype=int)
         deleted_edge_graph = np.copy(self.X)
@@ -327,6 +327,15 @@ class PerturbationExperiment:
         #     print(f'({int(coord[0])}, {int(coord[1])}) = {coord[2]}')
 
         difference = np.diff(info_loss[:, -1]) * -1
+
+        if auxiliary_cutoff is None:
+            auxiliary_cutoff = np.sqrt(
+                np.sum((difference - np.log2(2))**2) / difference.shape[0]
+            )
+            # auxiliary_cutoff = np.std(difference)
+            print(f'Auxiliary Cutoff: {auxiliary_cutoff}')
+            print(f'Standard Deviation: {np.std(difference)}')
+
         difference_filter = [False]
         difference_filter.extend(np.isin(
             np.arange(len(difference)),
@@ -340,14 +349,14 @@ class PerturbationExperiment:
 
         #print(difference_filter)
         if (not any(difference_filter)):
-            return self.X, None, None, None
+            return self.X #, None, None, None, None, None
         
         edges_for_deletion = (info_loss[difference_filter])[:, :-1]
         edges_for_deletion = np.array([*edges_for_deletion, *edges_for_deletion[:, ::-1]], dtype=int)
 
         if not keep_changes:
             deleted_edge_graph[edges_for_deletion[:,0],edges_for_deletion[:,1]] = 0
-            return deleted_edge_graph, info_loss, difference, edges_for_deletion
+            return deleted_edge_graph #, info_loss, difference, difference_filter, edges_for_deletion, auxiliary_cutoff
 
         self.run(idx=edges_for_deletion,keep_changes=keep_changes)
-        return self.X, info_loss, difference, edges_for_deletion
+        return self.X #, info_loss, difference, difference_filter, edges_for_deletion, auxiliary_cutoff
