@@ -312,11 +312,12 @@ class PerturbationExperiment:
         info_loss = np.empty((0, 3), dtype=int)
         deleted_edge_graph = np.copy(self.X)
         nonzero_edges =  np.column_stack(np.nonzero(np.triu(deleted_edge_graph)))
+        orig_bdm = self.bdm.bdm(self.X)
         
         for edge in nonzero_edges:
             deleted_edge_graph[edge,edge[::-1]] = 0
             deleted_edge_bdm = self.bdm.bdm(deleted_edge_graph)
-            loss =  self._value - deleted_edge_bdm
+            loss =  orig_bdm - deleted_edge_bdm
             if loss > 0:
                 info_loss = np.vstack((info_loss, np.array([*edge, loss])))
             deleted_edge_graph[edge,edge[::-1]] = 1
@@ -349,14 +350,14 @@ class PerturbationExperiment:
 
         #print(difference_filter)
         if (not any(difference_filter)):
-            return self.X #, None, None, None, None, None
+            return self.X, None, None, None, None, None
         
         edges_for_deletion = (info_loss[difference_filter])[:, :-1]
         edges_for_deletion = np.array([*edges_for_deletion, *edges_for_deletion[:, ::-1]], dtype=int)
 
         if not keep_changes:
             deleted_edge_graph[edges_for_deletion[:,0],edges_for_deletion[:,1]] = 0
-            return deleted_edge_graph #, info_loss, difference, difference_filter, edges_for_deletion, auxiliary_cutoff
+            return deleted_edge_graph, info_loss, difference, difference_filter, edges_for_deletion, auxiliary_cutoff
 
         self.run(idx=edges_for_deletion,keep_changes=keep_changes)
-        return self.X #, info_loss, difference, difference_filter, edges_for_deletion, auxiliary_cutoff
+        return self.X, info_loss, difference, difference_filter, edges_for_deletion, auxiliary_cutoff

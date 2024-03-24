@@ -1,7 +1,7 @@
 import numpy as np
 import random
 from pybdm import BDM
-from pybdm.partitions import PartitionRecursive
+from pybdm.partitions import PartitionCorrelated, PartitionIgnore, PartitionRecursive
 from pybdm.algorithms import PerturbationExperiment
 from community import community_louvain
 import networkx as nx
@@ -60,15 +60,16 @@ def merge_graphs(graphs, rename, randomize=False, random_edges=None):
     graphs_to_merge = graphs
     rename_labels = rename
     edges_to_add = []
+    added_edge_prefix = 'CN-'
 
     if random_edges is None:
         connecting_node = nx.Graph()
         connecting_node.add_node(1)
         graphs_to_merge.append(connecting_node)
-        rename_labels = rename_labels + ('CN-',)
+        rename_labels = rename_labels + (added_edge_prefix,)
 
         for i in range(len(rename)):
-            edges_to_add.append((f'{rename[i]}0', 'CN-1'))
+            edges_to_add.append((f'{rename[i]}0', f'{added_edge_prefix}1'))
             
     else:
         # Get only first two
@@ -83,23 +84,40 @@ def merge_graphs(graphs, rename, randomize=False, random_edges=None):
     X = nx.union_all(graphs_to_merge, rename_labels)
     X.add_edges_from(edges_to_add)
 
+    node_list = list(X.nodes)
+    edge_list = [e for e in X.edges]
+    edge_mapping = {v: i for i, v in enumerate(node_list)}
+
     prefix_color_mapping = {}
     color_mapping = {
-        0 : 'tab:blue',
-        1 : 'tab:orange',
-        2 : 'tab:green',
-        3 : 'tab:red',
-        4 : 'tab:purple', 
+        0 : 'tab:green',
+        1 : 'tab:red',
+        2 : 'tab:orange',
+        3 : 'tab:blue',
+        4 : 'tab:olive', 
         5 : 'tab:brown', 
-        6 : 'tab:pink', 
+        6 : 'tab:purple', 
         7 : 'tab:gray', 
-        8 : 'tab:olive', 
-        9 : 'tab:cyan'
+        8 : 'tab:cyan', 
+        9 : 'tab:pink'
     }
-    prefixes = set(get_prefix(node) for node in X.nodes())
-    for i, prefix in enumerate(prefixes):
+    for i, prefix in enumerate(rename_labels):
         prefix_color_mapping[prefix] = color_mapping[i % len(color_mapping)]
+
+    edge_color = {}
     node_color = [prefix_color_mapping[get_prefix(node)] for node in X.nodes()]
+    
+    for edge in edge_list:
+        u = edge[0]
+        v = edge[1]
+        if (get_prefix(u) == get_prefix(v)):
+            e_color = prefix_color_mapping[get_prefix(u)].removeprefix('tab:')
+        else:
+            e_color = prefix_color_mapping[added_edge_prefix].removeprefix('tab:')
+
+        u = edge_mapping[u]
+        v = edge_mapping[v]
+        edge_color[(u,v)] = e_color
 
     X = nx.to_numpy_array(X, dtype=int)
 
@@ -109,32 +127,36 @@ def merge_graphs(graphs, rename, randomize=False, random_edges=None):
         random.shuffle(combined_list)
         new_arrange, node_color = zip(*combined_list)
         new_arrange = list(new_arrange)
+        new_arrange_mapping = {value: index for index, value in enumerate(new_arrange)}
+        edge_color = {
+            (new_arrange_mapping[k[0]], new_arrange_mapping[k[1]]): v for _, (k,v) in enumerate(edge_color.items())
+        }
         node_color = list(node_color)
-        return X[new_arrange][:, new_arrange], node_color
+        return X[new_arrange][:, new_arrange], node_color, edge_color, prefix_color_mapping
 
-    return X, node_color
+    return X, node_color, edge_color, prefix_color_mapping
 
-def draw_graph(G, filename, node_color = None, colored_edges = np.empty((0, 2), dtype=int), edge_layout='curved', use_community=True):
+def draw_graph(filename, G, node_color = None, colored_edges = np.empty((0, 2), dtype=int), edge_layout='curved', use_community=True):
 
     with np.errstate(divide='ignore',invalid='ignore'):
 
-        kwargs = {}
+        params = {}
         
-        kwargs['node_edge_width'] = 0
-        kwargs['node_labels'] = True
-        kwargs['node_layout']='community' if use_community else 'spring'
-        kwargs['edge_layout'] = edge_layout
-        kwargs['edge_layout_kwargs'] = dict(k=2000)
+        params['node_edge_width'] = 0
+        params['node_labels'] = True
+        params['node_layout']='community' if use_community else 'spring'
+        params['edge_layout'] = edge_layout
+        params['edge_layout_kwargs'] = dict(k=2000)
         edges_coords = [tuple(coord) for coord in colored_edges]
-        kwargs['edge_color'] = dict([
+        params['edge_color'] = dict([
             ((u, v), '#ff0000') if (u, v) in edges_coords else ((u, v), '#2c404c') for u, v in G.edges()
         ])
-        kwargs['edge_alpha'] = dict([
+        params['edge_alpha'] = dict([
             ((u, v), 0.5) if (u, v) in edges_coords else ((u, v), 0.15) for u, v in G.edges()
         ])
 
         if node_color:
-            kwargs['node_color'] = { node : color for node, color in enumerate(node_color) }
+            params['node_color'] = { node : color for node, color in enumerate(node_color) }
 
         if use_community:
             color_mapping = {
@@ -150,23 +172,25 @@ def draw_graph(G, filename, node_color = None, colored_edges = np.empty((0, 2), 
                 9 : 'tab:cyan'
             }
             node_to_community = community_louvain.best_partition(G)
-            community_values = set(node_to_community.values())
-            community_to_color = { c : color_mapping[c % len(color_mapping)] for c in community_values}
-            community_node_color = {
-                node: community_to_color[community_id] for node, community_id in node_to_community.items()
-            }
-            kwargs['node_layout_kwargs']=dict(node_to_community=node_to_community)
+            params['node_layout_kwargs']=dict(node_to_community=node_to_community)
+
             if node_color is None:
-                kwargs['node_color'] = community_node_color
+                community_values = set(node_to_community.values())
+                community_to_color = { c : color_mapping[c % len(color_mapping)] for c in community_values}
+                community_node_color = {
+                    node: community_to_color[community_id] for node, community_id in node_to_community.items()
+                }
+                params['node_color'] = community_node_color
             
 
         plt.figure(dpi=200)
-        ng.Graph(G, **kwargs)
-        plt.title(f'Subgraphs = {nx.number_connected_components(G)}, Edges = {nx.number_of_edges(G)}')
-        plt.savefig(filename)
+        ng.Graph(G, **params)
+        # plt.title(f'Subgraphs = {nx.number_connected_components(G)}, Edges = {nx.number_of_edges(G)}')
+        plt.title(f'{filename}')
+        plt.savefig(f'results/{filename}.png')
         plt.clf()
 
-def draw_info_signature_graph(info_loss, difference, difference_filter, auxiliary_cutoff):
+def draw_info_signature_plot(filename, info_loss, difference, difference_filter, auxiliary_cutoff):
     info_loss_values = info_loss[:,-1]
     info_loss_yval = info_loss_values
     info_loss_xval = np.array([i for i in range(len(info_loss_values))])
@@ -195,10 +219,64 @@ def draw_info_signature_graph(info_loss, difference, difference_filter, auxiliar
         ['information signature', 'difference', 'deleted edges', 'log(2) + epsilon'],
         loc="upper right"
     )
-    plt.title(f'Information Signature and Differences')
+    plt.title(filename)
     plt.xlabel("Sorted Edges")
     plt.ylabel("Positive Information Value")
-    plt.savefig('Information Signatures.png')
+    plt.savefig(f'results/{filename}.png')
+    plt.clf()
+
+def draw_edge_grouping_plot(filename, info_loss, edge_color, graphs_mapping, prefix_color_mapping):
+  
+    coords = list(zip(info_loss[:,0].astype(int), info_loss[:,1].astype(int)))
+    info_loss_yval = info_loss[:,-1]
+    info_loss_xval = np.array([i for i in range(len(coords))])
+
+    color_to_prefix = {v.removeprefix('tab:'): k for k, v in prefix_color_mapping.items()}
+    marker_mapping = {
+        'S-': 'D',
+        'C-': '^',
+        'ER-': 's',
+        'CN-': 'o'
+    }
+
+    for i in range(len(coords)):
+
+        mapped_color = edge_color[coords[i]] if coords[i] in edge_color else edge_color[coords[i][::-1]]
+
+        params = {
+            'color' : mapped_color,
+            'marker' : marker_mapping[color_to_prefix[mapped_color]],
+            'markersize': 3.5,
+            'linewidth': 0
+        }
+
+        plt.plot(info_loss_xval[i], info_loss_yval[i], **params)
+    
+    custom_lines = []
+    legend_labels = []
+    
+    for graph_prefix in prefix_color_mapping:
+
+        legend_labels.append(graphs_mapping[graph_prefix])
+        custom_lines.append(
+            ln.Line2D(
+                [0], [0], 
+                color=prefix_color_mapping[graph_prefix], 
+                marker = marker_mapping[graph_prefix],
+                linestyle='None',
+                markersize= 7
+            )
+        )
+
+    plt.legend(
+        custom_lines, 
+        legend_labels,
+        loc="upper right"
+    )
+    plt.title(filename)
+    plt.xlabel("Sorted Edges")
+    plt.ylabel("Positive Information Value")
+    plt.savefig(f'results/{filename}.png')
     plt.clf()
 
 nodes = 20
@@ -211,10 +289,26 @@ nodes = 20
 
 # R = nx.watts_strogatz_graph(12, 4, 0)
 
-S = nx.star_graph(17)
-C = nx.complete_graph(10)
-ER = nx.erdos_renyi_graph(13, 0.50)
-X, node_color = merge_graphs([S, C, ER], rename=('S-', 'C-', 'ER-'), randomize=True)
+graphs_mapping = {
+    'S-': 'Star Graph',
+    'C-': 'Complete Graph',
+    'ER-': 'Erdos-Renyi Graph',
+    'CN-': 'Connecting Edges'
+}
+
+graphs = {
+    'S-': nx.star_graph(17),
+    'C-': nx.complete_graph(10),
+    'ER-': nx.erdos_renyi_graph(13, 0.50)
+}
+
+# S = nx.star_graph(17)
+# C = nx.complete_graph(10)
+# ER = nx.erdos_renyi_graph(13, 0.50)
+
+X, node_color, edge_color, prefix_color_mapping = merge_graphs(
+        list(graphs.values()), rename=tuple(graphs.keys()), randomize=True
+    )
 
 # BA = nx.barabasi_albert_graph(100, 2)
 # C = nx.complete_graph(20)
@@ -224,40 +318,74 @@ X, node_color = merge_graphs([S, C, ER], rename=('S-', 'C-', 'ER-'), randomize=T
 # ER = nx.erdos_renyi_graph(nodes, 0.50)
 # X, node_color = merge_graphs([ER, BA], rename=('ER-', 'BA-'), randomize=True, random_edges=3)
 
+partitions = [PartitionIgnore, PartitionRecursive, PartitionCorrelated]
+submatrix_size = 4
+
 if True:
 
-    original_graph = np.copy(X)
-    perturbation = PerturbationExperiment(BDM(ndim=2, partition=PartitionRecursive), X, metric='bdm',)
+    for partition in partitions:
 
-    # deco, info_loss, difference, deleted_edges = perturbation.deconvolve(2)
-    deco, info_loss, difference, difference_filter, deleted_edges, auxiliary_cutoff = perturbation.deconvolve_cutoff()
+        print(f'\nProcessing {partition.__name__}:')
 
-    # Checking
-    # print(f'Original graph is equal: {np.array_equal(original_graph, perturbation.X)}')
-    # print(f'Result is same with X: {np.array_equal(deco, perturbation.X)}')
-    # print(f'Symmetrical: {check_symmetry(perturbation.X)}')
+        params = {}
+        has_sliding_window = partition == PartitionCorrelated
+        shift_range = submatrix_size if has_sliding_window else 1
 
-    # Setup graphs for drawing
-    orig_graph = nx.from_numpy_array(original_graph)
-    deconvolve_graph = nx.from_numpy_array(deco)
-    edge_layout = 'curved'
-    use_community = True
-    draw_graph(
-        orig_graph, 
-        'Original Graph.png', 
-        node_color=node_color, 
-        colored_edges=deleted_edges, 
-        edge_layout=edge_layout, 
-        use_community=use_community
-    )
-    draw_graph(
-        deconvolve_graph, 
-        'Deconvoluted Graph.png', 
-        node_color=node_color, 
-        colored_edges=deleted_edges, 
-        edge_layout=edge_layout, 
-        use_community=use_community
-    )
+        for current_shift in range(1, shift_range + 1):
 
-    # Create Information Signature Graph
-    draw_info_signature_graph(info_loss, difference, difference_filter, auxiliary_cutoff)
+            file_name_prefix = f'Shift {current_shift} {partition.__name__} - ' if has_sliding_window else f'{partition.__name__} - '
+            
+            if has_sliding_window:
+                print(f'Current Sliding Window: {current_shift}') 
+                params['shift'] = current_shift
+
+            original_graph = np.copy(X)
+            perturbation = PerturbationExperiment(BDM(ndim=2, partition=partition, **params), X, metric='bdm')
+
+            deco, info_loss, difference, difference_filter, deleted_edges, auxiliary_cutoff = perturbation.deconvolve_cutoff()
+
+            # Checking
+            # print(f'Original graph is equal: {np.array_equal(original_graph, perturbation.X)}')
+            # print(f'Result is same with X: {np.array_equal(deco, perturbation.X)}')
+            # print(f'Symmetrical: {check_symmetry(perturbation.X)}')
+
+            # Setup graphs for drawing
+            orig_graph = nx.from_numpy_array(original_graph)
+            deconvolve_graph = nx.from_numpy_array(deco)
+            edge_layout = 'curved'
+            use_community = True
+            
+            draw_graph(
+                f'{file_name_prefix}Deconvolution Graph', 
+                orig_graph, 
+                node_color=node_color, 
+                colored_edges=deleted_edges, 
+                edge_layout=edge_layout, 
+                use_community=use_community
+            )
+            # draw_graph(
+            #     f'{file_name_prefix} Deconvoluted Graph', 
+            #     deconvolve_graph, 
+            #     node_color=node_color, 
+            #     colored_edges=deleted_edges, 
+            #     edge_layout=edge_layout, 
+            #     use_community=use_community
+            # )
+
+            # Create Information Signature plot
+            draw_info_signature_plot(
+                f'{file_name_prefix}Information Signature and Differences',
+                info_loss, 
+                difference, 
+                difference_filter, 
+                auxiliary_cutoff
+            )
+
+            # Create Edge Grouping Plot
+            draw_edge_grouping_plot(
+                f'{file_name_prefix}Edge Grouping via Information Signature',
+                info_loss, 
+                edge_color,
+                graphs_mapping,
+                prefix_color_mapping
+            )
