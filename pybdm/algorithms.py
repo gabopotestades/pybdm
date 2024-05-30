@@ -318,8 +318,8 @@ class PerturbationExperiment:
             deleted_edge_graph[edge,edge[::-1]] = 0
             deleted_edge_bdm = self.bdm.bdm(deleted_edge_graph)
             loss =  orig_bdm - deleted_edge_bdm
-            if loss > 0:
-                info_loss = np.vstack((info_loss, np.array([*edge, loss])))
+            # if loss > 0:
+            info_loss = np.vstack((info_loss, np.array([*edge, loss])))
             deleted_edge_graph[edge,edge[::-1]] = 1
 
         info_loss = info_loss[np.argsort(-info_loss[:,-1])]
@@ -327,26 +327,30 @@ class PerturbationExperiment:
         # for coord in info_loss:
         #     print(f'({int(coord[0])}, {int(coord[1])}) = {coord[2]}')
 
-        difference = np.diff(info_loss[:, -1]) * -1
+        # difference = np.diff(info_loss[:, -1]) * -1
+        difference_values = info_loss[:, -1]
+        difference = difference_values[:-1] - difference_values[1:]
+        # print(difference)
 
         if auxiliary_cutoff is None:
             auxiliary_cutoff = np.sqrt(
                 np.sum((difference - np.log2(2))**2) / difference.shape[0]
             )
             # auxiliary_cutoff = np.std(difference)
-            print(f'Auxiliary Cutoff: {auxiliary_cutoff}')
-            print(f'Standard Deviation: {np.std(difference)}')
 
-        difference_filter = [False]
-        difference_filter.extend(np.isin(
-            np.arange(len(difference)),
-            np.where(abs(difference - np.log2(2)) > auxiliary_cutoff)
-        ))
-        # difference_filter = list(np.isin(
+        print(f'Auxiliary Cutoff: {auxiliary_cutoff}')
+        print(f'Standard Deviation: {np.std(difference)}')
+
+        # difference_filter = [False]
+        # difference_filter.extend(np.isin(
         #     np.arange(len(difference)),
         #     np.where(abs(difference - np.log2(2)) > auxiliary_cutoff)
         # ))
-        # difference_filter.extend([False])
+        difference_filter = list(np.isin(
+            np.arange(len(difference)),
+            np.where(abs(difference - np.log2(2)) > auxiliary_cutoff)
+        ))
+        difference_filter.extend([False])
 
         #print(difference_filter)
         if (not any(difference_filter)):

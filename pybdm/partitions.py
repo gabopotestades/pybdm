@@ -10,6 +10,7 @@ so it is well-specified what approach exactly is to be used.
 """
 # pylint: disable=unused-argument
 from .utils import decompose_dataset, iter_part_shapes
+import numpy as np
 
 
 class _Partition:
@@ -129,7 +130,6 @@ class PartitionCorrelated(PartitionIgnore):
             if shape == self.shape:
                 yield shape
 
-
 class PartitionRecursive(_Partition):
     """Partition with the 'recursive' boundary condition.
 
@@ -174,3 +174,48 @@ class PartitionRecursive(_Partition):
         .. automethod:: _Partition.decompose
         """
         yield from self._decompose(X, shape=self.shape)
+
+class PartitionPeriodic(PartitionIgnore):
+    """Partition with the 'periodic' boundary condition.
+
+    Attributes
+    ----------
+    shape : tuple
+        Part shape.
+
+    Notes
+    -----
+    See :doc:`theory` for a detailed description.
+    """
+
+    name = 'periodic'
+
+    def decompose(self, X):
+        """Decompose with the 'ignore' boundary but using an extended matrix.
+
+        .. automethod:: _Partition.decompose
+        """
+
+        extended_X = self._extend_matrix(X)
+        
+        for part in decompose_dataset(extended_X, shape=self.shape, shift=0):
+            if part.shape == self.shape:
+                yield part
+
+    def _extend_matrix(self, X):
+
+        row_size = self.shape[0]
+        col_size = self.shape[1]
+
+        row_idx = row_size - (X.shape[0] % row_size)
+        row_idx = 0 if row_size == row_idx else row_idx
+        col_idx = col_size - (X.shape[1] % col_size)
+        col_idx = 0 if col_size == col_idx else col_idx
+
+        periodic_cols = X[:,:col_idx]
+        periodic_rows = np.hstack((X[:row_idx, :],X[:row_idx, :col_idx]))
+
+        extended_matrix = np.hstack((X,periodic_cols))
+        extended_matrix = np.vstack((extended_matrix, periodic_rows))
+
+        return extended_matrix
