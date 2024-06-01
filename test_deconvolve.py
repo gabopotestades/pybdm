@@ -155,6 +155,7 @@ def convert_csv_to_graph(filename, randomize=False):
 
     graphs = {
         'S-': nx.from_numpy_array(original_graph[:10,:10]),
+        #'S-': nx.star_graph(21),
         'ER-': nx.from_numpy_array(original_graph[10:30, 10:30]),
         'C-': nx.from_numpy_array(original_graph[30:,30:]),
     }
@@ -169,7 +170,9 @@ def convert_csv_to_graph(filename, randomize=False):
     X.add_edges_from(edges_to_add)
 
     node_list = list(X.nodes)
+    print(f'Node count: {len(node_list)}')
     edge_list = [e for e in X.edges]
+    print(f'Edge count: {len(edge_list)}')
     edge_mapping = {v: i for i, v in enumerate(node_list)}
 
     prefix_color_mapping = {}
@@ -408,7 +411,7 @@ graphs_mapping = {
 # #289722
 
 graphs = {
-    'S-': nx.star_graph(9),
+    'S-': nx.star_graph(21),
     'ER-': nx.gnm_random_graph(20, 20, 289722),
     'C-': nx.complete_graph(10),
 }
@@ -443,7 +446,7 @@ randomize_nodes = False
 #     )
 X, node_color, edge_color, prefix_color_mapping = convert_csv_to_graph('testgraph.csv', False)
 
-auxiliary_cutoff = 16
+auxiliary_cutoff = 14
 if True:
 
     for shape in block_sizes:
