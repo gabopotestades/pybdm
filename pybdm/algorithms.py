@@ -104,7 +104,7 @@ class PerturbationExperiment:
         self.X = X
         self._counter = self.bdm.decompose_and_count(X)
         if self.metric == 'bdm':
-            self._value = self.bdm.compute_bdm(self._counter)
+            self._value = self.bdm.compute_bdm(self._counter, csv_name='edge_bdm_results/original.csv')
         elif self.metric == 'ent':
             self._value = self.bdm.compute_ent(self._counter)
             self._ncounts = sum(self._counter.values())
@@ -309,28 +309,79 @@ class PerturbationExperiment:
 
     def deconvolve_cutoff(self, auxiliary_cutoff=None, keep_changes=False):
 
-        info_loss = np.empty((0, 3), dtype=int)
+        info_loss_values = np.empty((0, 1), dtype=float)
+        edges_bdm = np.empty((0, 1), dtype=float)
+        info_loss_edges = np.empty((0, 2), dtype=int)
         deleted_edge_graph = np.copy(self.X)
-        nonzero_edges =  np.column_stack(np.nonzero(np.triu(deleted_edge_graph)))
-        orig_bdm = self.bdm.bdm(self.X)
-        
-        for edge in nonzero_edges:
-            deleted_edge_graph[edge,edge[::-1]] = 0
-            deleted_edge_bdm = self.bdm.bdm(deleted_edge_graph)
-            loss =  orig_bdm - deleted_edge_bdm
-            # if loss > 0:
-            info_loss = np.vstack((info_loss, np.array([*edge, loss])))
-            deleted_edge_graph[edge,edge[::-1]] = 1
 
-        info_loss = info_loss[np.argsort(-info_loss[:,-1])]
+        mode = 'py'
 
-        # for coord in info_loss:
-        #     print(f'({int(coord[0])}, {int(coord[1])}) = {coord[2]}')
+        if mode == 'R':
+
+            # nonzero_edges = np.column_stack(np.nonzero(np.triu(deleted_edge_graph)))
+            nonzero_edges = np.column_stack(np.nonzero(deleted_edge_graph))
+            orig_bdm = self.bdm.bdm(self.X, csv_name='edge_bdm_results/py-original.csv')
+
+            print(f'Original BDM: {orig_bdm}')
+
+            for edge in nonzero_edges:
+                # deleted_edge_graph[edge, edge[::-1]] = 0
+                deleted_edge_graph[(edge[0], edge[1])] = 0
+                deleted_edge_bdm = self.bdm.bdm(deleted_edge_graph, csv_name=f'edge_bdm_results/py-{edge[0]+1}-{edge[1]+1}.csv')
+                loss =  orig_bdm - deleted_edge_bdm
+
+                if loss > 0:
+                    #print(f'Edge {edge}, Orig: {orig_bdm}, Deleted: {deleted_edge_bdm}, Loss: {loss}')
+                    info_loss_edges = np.vstack((info_loss_edges, np.array([edge])))
+                    edges_bdm = np.vstack((edges_bdm, np.array([deleted_edge_bdm])))
+                    info_loss_values = np.vstack((info_loss_values, np.array([loss])))
+
+                #deleted_edge_graph[edge, edge[::-1]] = 1
+                deleted_edge_graph[(edge[0], edge[1])] = 1
+
+        else:
+            nonzero_edges = np.column_stack(np.nonzero(np.triu(deleted_edge_graph)))
+            #nonzero_edges = np.column_stack(np.nonzero(deleted_edge_graph))
+            orig_bdm = self.bdm.bdm(self.X, csv_name='edge_bdm_results/py-original.csv')
+
+            print(f'Original BDM: {orig_bdm}')
+
+            for edge in nonzero_edges:
+                deleted_edge_graph[edge, edge[::-1]] = 0
+                #deleted_edge_graph[(edge[0], edge[1])] = 0
+                deleted_edge_bdm = self.bdm.bdm(deleted_edge_graph, csv_name=f'edge_bdm_results/py-{edge[0]+1}-{edge[1]+1}.csv')
+                loss =  orig_bdm - deleted_edge_bdm
+
+                #if loss > 0:
+                    #print(f'Edge {edge}, Orig: {orig_bdm}, Deleted: {deleted_edge_bdm}, Loss: {loss}')
+                info_loss_edges = np.vstack((info_loss_edges, np.array([edge])))
+                edges_bdm = np.vstack((edges_bdm, np.array([deleted_edge_bdm])))
+                info_loss_values = np.vstack((info_loss_values, np.array([loss])))
+
+                deleted_edge_graph[edge, edge[::-1]] = 1
+                #deleted_edge_graph[(edge[0], edge[1])] = 1
+
+        sort_values = np.argsort(-info_loss_values[:,0])
+        info_loss_values = info_loss_values[sort_values]
+        info_loss_edges = info_loss_edges[sort_values]
+        edges_bdm = edges_bdm[sort_values]
 
         # difference = np.diff(info_loss[:, -1]) * -1
-        difference_values = info_loss[:, -1]
+        difference_values = info_loss_values[:, -1]
         difference = difference_values[:-1] - difference_values[1:]
-        # print(difference)
+
+        # Specify the file name for the CSV file
+        info_loss_edges_display = info_loss_edges + 1
+        info_loss_edges_display = np.array([['V' + str(val) for val in row] for row in info_loss_edges_display])
+        combined_array = np.hstack((
+            info_loss_edges_display, 
+            edges_bdm, 
+            info_loss_values,
+            np.append(difference, 0).reshape(-1, 1)
+        ))
+        formats = ['%s', '%s', '%s', '%s', '%s']
+        fmt = ','.join(formats)
+        np.savetxt("info_loss.csv", combined_array, header="from,to,bdm_value,information_loss,difference", delimiter=",", fmt=fmt)
 
         if auxiliary_cutoff is None:
             auxiliary_cutoff = np.sqrt(
@@ -338,14 +389,16 @@ class PerturbationExperiment:
             )
             # auxiliary_cutoff = np.std(difference)
 
-        print(f'Auxiliary Cutoff: {auxiliary_cutoff}')
-        print(f'Standard Deviation: {np.std(difference)}')
+        # print(f'Auxiliary Cutoff: {auxiliary_cutoff}')
+        # print(f'Standard Deviation: {np.std(difference)}')
 
         # difference_filter = [False]
         # difference_filter.extend(np.isin(
         #     np.arange(len(difference)),
         #     np.where(abs(difference - np.log2(2)) > auxiliary_cutoff)
         # ))
+
+        print(f'Auxiliary Cutoff: {auxiliary_cutoff}\n')
         difference_filter = list(np.isin(
             np.arange(len(difference)),
             np.where(abs(difference - np.log2(2)) > auxiliary_cutoff)
@@ -356,12 +409,12 @@ class PerturbationExperiment:
         if (not any(difference_filter)):
             return self.X, None, None, None, None, None
         
-        edges_for_deletion = (info_loss[difference_filter])[:, :-1]
-        edges_for_deletion = np.array([*edges_for_deletion, *edges_for_deletion[:, ::-1]], dtype=int)
+        edges_for_deletion = (info_loss_edges[difference_filter])
+        edges_for_deletion = np.array([*edges_for_deletion, *edges_for_deletion[:, ::]], dtype=int)
 
         if not keep_changes:
             deleted_edge_graph[edges_for_deletion[:,0],edges_for_deletion[:,1]] = 0
-            return deleted_edge_graph, info_loss, difference, difference_filter, edges_for_deletion, auxiliary_cutoff
+            return deleted_edge_graph, info_loss_values, info_loss_edges, difference, difference_filter, edges_for_deletion, auxiliary_cutoff
 
         self.run(idx=edges_for_deletion,keep_changes=keep_changes)
-        return self.X, info_loss, difference, difference_filter, edges_for_deletion, auxiliary_cutoff
+        return self.X, info_loss_values, info_loss_edges, difference, difference_filter, edges_for_deletion, auxiliary_cutoff

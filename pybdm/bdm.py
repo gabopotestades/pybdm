@@ -20,12 +20,12 @@ from functools import reduce
 from itertools import cycle, repeat, chain
 import numpy as np
 from . import options
-from .utils import get_ctm_dataset
+from .utils import get_ctm_dataset, convert_csv_to_dict
 from .partitions import PartitionIgnore, PartitionCorrelated
 from .encoding import string_from_array, normalize_key
 from .exceptions import BDMRuntimeWarning
 from .exceptions import CTMDatasetNotFoundError, BDMConfigurationError
-
+import csv
 
 class BDM:
     """Block decomposition method.
@@ -146,6 +146,7 @@ class BDM:
         if any([ x != shape[0] for x in shape ]):
             raise BDMConfigurationError("'shape' has to be equal in each dimension")
         ctm, ctm_missing = get_ctm_dataset(self.ctmname)
+        # ctm[(4,4)] = convert_csv_to_dict('K-4x4.csv')
         self._ctm = ctm
         self._ctm_missing = ctm_missing
         self.warn_if_missing_ctm = warn_if_missing_ctm
@@ -158,7 +159,7 @@ class BDM:
         return "<{}(ndim={}, nsymbols={}) with {}>".format(
             cn, self.ndim, self.nsymbols, partition
         )
-
+    
     def decompose(self, X):
         """Decompose a dataset into blocks.
 
@@ -305,7 +306,7 @@ class BDM:
         counter = self.count(blocks)
         return counter
 
-    def compute_bdm(self, *counters):
+    def compute_bdm(self, *counters, csv_name=''):
         """Approximate Kolmogorov complexity based on the BDM formula.
 
         Parameters
@@ -333,12 +334,25 @@ class BDM:
         """
         counter = reduce(lambda x, y: x+y, counters)
         bdm = 0
+
+        ctm_values = np.empty((0, 3), dtype=object)
         for key, n in counter.items():
             _, ctm = key
             bdm += ctm + log2(n)
+            ctm_values = np.vstack((ctm_values, np.array([_, ctm, n], dtype=object)))
+        
+        sorted_idx = np.argsort(ctm_values[:, 0])
+        ctm_values = ctm_values[sorted_idx]
+
+        ctm_values=np.vstack((ctm_values, np.array(['bdm', bdm, '---'], dtype=object)))
+
+        formats = ['%s', '%s', '%s']
+        fmt = ','.join(formats)
+        np.savetxt(csv_name, ctm_values, header="flatSquares,lookup_values,frequency", delimiter=",", fmt=fmt)
+
         return bdm
 
-    def bdm(self, X, normalized=False, check_data=True):
+    def bdm(self, X, normalized=False, check_data=True, csv_name=''):
         """Approximate complexity of a dataset with BDM.
 
         Parameters
@@ -389,7 +403,7 @@ class BDM:
                     PartitionCorrelated.name
                 ))
         counter = self.decompose_and_count(X)
-        cmx = self.compute_bdm(counter)
+        cmx = self.compute_bdm(counter, csv_name=csv_name)
         if self.raise_if_zero and options.get('raise_if_zero') and cmx == 0:
             raise ValueError("Computed BDM is 0, dataset may have incorrect dimensions")
         if normalized:

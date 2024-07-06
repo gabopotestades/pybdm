@@ -7,7 +7,14 @@ from functools import lru_cache
 from pkg_resources import resource_stream
 import numpy as np
 from .ctmdata import CTM_DATASETS as _ctm_datasets, __name__ as _ctmdata_path
+import csv
 
+def convert_csv_to_dict(filename):
+    reader = csv.reader(open(filename, 'r'), delimiter=',')
+    dct = {}
+    for row in reader: 
+        dct[str(row[0])] = float(row[1])
+    return OrderedDict(sorted(dct.items(), key=lambda x: x[1], reverse=True))
 
 def prod(seq):
     # pylint: disable=anomalous-backslash-in-string

@@ -10,7 +10,33 @@ import matplotlib.lines as ln
 import netgraph as ng
 import re
 import os
+from pybdm.ctmdata import CTM_DATASETS as _ctm_datasets, __name__ as _ctmdata_path
+from pkg_resources import resource_stream
+import gzip
+import pickle
 import csv
+from collections import OrderedDict
+import math
+
+def convert_ctm_to_csv(filename):
+    with resource_stream(_ctmdata_path, _ctm_datasets[filename]) as stream:
+        dct = pickle.loads(gzip.decompress(stream.read()))
+    for key in dct:
+        o = dct[key]
+        dct[key] = OrderedDict(sorted(o.items(), key=lambda x: x[1], reverse=True))
+
+    output_file = "output.csv"
+    dct = OrderedDict(sorted(dct[(4,4)].items()))
+
+    # Open the file in write mode
+    with open(output_file, mode='w', newline='') as file:
+        writer = csv.writer(file)
+
+        # Write each key-value pair on a new line
+        for key, value in dct.items():
+            writer.writerow([key, value])
+
+    print(f"Data has been written to {output_file}")
 
 def create_folder_if_not_exists(folder_name):
     if not os.path.exists(folder_name):
@@ -88,7 +114,6 @@ def merge_graphs(graphs, rename, randomize=False, random_edges=None):
                 f'{rename[0]}{first_graph_nodes[i]}', f'{rename[1]}{second_graph_nodes[i]}'
             ))
 
-
     X = nx.union_all(graphs_to_merge, rename_labels)
     X.add_edges_from(edges_to_add)
 
@@ -153,27 +178,53 @@ def convert_csv_to_graph(filename, randomize=False):
     original_graph = np.array(list(reader)).astype('int')
     added_edge_prefix = 'CN-'
 
+    #* Based on test data
+    # graphs = {
+    #     'S-': nx.from_numpy_array(original_graph[:10,:10]),
+    #     'ER-': nx.from_numpy_array(original_graph[10:30, 10:30]),
+    #     'C-': nx.from_numpy_array(original_graph[30:,30:]),
+    # }
+    # edges_to_add = [
+    #     (f'S-0', f'ER-11'),
+    #     (f'C-0', f'ER-11'),
+    # ]
+
+    #* Based on black and white images in the paper
     graphs = {
-        'S-': nx.from_numpy_array(original_graph[:10,:10]),
-        #'S-': nx.star_graph(21),
-        'ER-': nx.from_numpy_array(original_graph[10:30, 10:30]),
-        'C-': nx.from_numpy_array(original_graph[30:,30:]),
+        'S-': nx.star_graph(18),
+        'ER-': nx.gnm_random_graph(11, 18),
+        'C-': nx.complete_graph(10),
     }
+    edges_to_add = [
+        (f'S-0', f'ER-10'),
+        (f'C-0', f'ER-10'),
+    ]
+
+    # #* Based on colored images in the paper
+    # graphs = {
+    #     'S-': nx.star_graph(16),
+    #     'ER-': nx.gnm_random_graph(13, 23),
+    #     'C-': nx.complete_graph(10),
+    # }
+    # edges_to_add = [
+    #     (f'S-0', f'ER-12'),
+    #     (f'C-0', f'ER-12'),
+    # ]
+
     rename_labels = tuple(graphs.keys()) + (added_edge_prefix,)
 
     X = nx.union_all(graphs.values(), rename_labels)
     
-    edges_to_add = [
-        (f'{rename_labels[0]}0', f'{rename_labels[1]}11'),
-        (f'{rename_labels[2]}0', f'{rename_labels[1]}11'),
-    ]
     X.add_edges_from(edges_to_add)
 
     node_list = list(X.nodes)
-    print(f'Node count: {len(node_list)}')
     edge_list = [e for e in X.edges]
-    print(f'Edge count: {len(edge_list)}')
     edge_mapping = {v: i for i, v in enumerate(node_list)}
+
+    # print(node_list)
+
+    print(f'Node count: {len(node_list)}')
+    print(f'Edge count: {len(edge_list)}')
 
     prefix_color_mapping = {}
     color_mapping = {
@@ -207,7 +258,7 @@ def convert_csv_to_graph(filename, randomize=False):
         edge_color[(u,v)] = e_color
 
     X = nx.to_numpy_array(X, dtype=int)
-    # np.savetxt("res.csv", X, delimiter=",")
+    #np.savetxt("res.csv", X, delimiter=",", fmt='%s')
 
     if randomize:
         new_arrange = list(range(X.shape[0]))
@@ -300,8 +351,7 @@ def draw_graph(filename, G, graphs_mapping, prefix_color_mapping, folder_name, n
         plt.savefig(f'{folder_name}/{filename}.png')
         plt.clf()
 
-def draw_info_signature_plot(filename, info_loss, difference, difference_filter, auxiliary_cutoff, folder_name):
-    info_loss_values = info_loss[:,-1]
+def draw_info_signature_plot(filename, info_loss_values, difference, difference_filter, auxiliary_cutoff, folder_name):
     info_loss_yval = info_loss_values
     info_loss_xval = np.array([i for i in range(len(info_loss_values))])
     aux_cutoff_yval = np.array([auxiliary_cutoff + np.log2(2) for _ in range(len(info_loss_values))])
@@ -335,11 +385,14 @@ def draw_info_signature_plot(filename, info_loss, difference, difference_filter,
     plt.savefig(f'{folder_name}/{filename}.png')
     plt.clf()
 
-def draw_edge_grouping_plot(filename, info_loss, edge_color, graphs_mapping, prefix_color_mapping, folder_name):
+def draw_edge_grouping_plot(filename, info_loss_values, info_loss_edges, edge_color, graphs_mapping, prefix_color_mapping, folder_name):
   
-    coords = list(zip(info_loss[:,0].astype(int), info_loss[:,1].astype(int)))
-    info_loss_yval = info_loss[:,-1]
+    coords = list(zip(info_loss_edges[:,0].astype(int), info_loss_edges[:,1].astype(int)))
+    info_loss_yval = info_loss_values
+    #info_loss_yval = np.log(info_loss_values)
+
     info_loss_xval = np.array([i for i in range(len(coords))])
+
 
     color_to_prefix = {v.removeprefix('tab:'): k for k, v in prefix_color_mapping.items()}
     marker_mapping = {
@@ -389,10 +442,23 @@ def draw_edge_grouping_plot(filename, info_loss, edge_color, graphs_mapping, pre
     plt.savefig(f'{folder_name}/{filename}.png')
     plt.clf()
 
+def check_matrix_equality(first_file, second_file):
+    reader = csv.reader(open(first_file, 'r'), delimiter=',')
+    original_graph = np.array(list(reader)).astype('int')
+
+    reader2 = csv.reader(open(second_file, 'r'), delimiter=',')
+    original_graph2 = np.array(list(reader2)).astype('int')
+
+    return (original_graph == original_graph2).all()
+
+#convert_ctm_to_csv('CTM-B2-D4x4')
+
+# print(check_matrix_equality('res.csv', 'matrix_data.csv'))
+
 nodes = 20
 
 # ER = nx.to_numpy_array(nx.erdos_renyi_graph(nodes, 0.50))
-# C = nx.to_numpy_array(nx.complete_graph(nodes))
+# C = nx.to_numpy_array(nx.complete_graph(nodes)) 
 # R = nx.to_numpy_array(nx.watts_strogatz_graph(nodes, 4, 0))
 # BA = nx.to_numpy_array(nx.barabasi_albert_graph(nodes, nodes // 2))
 # X = combine_two_graphs(ER, C, num_nodes=nodes, randomize=True)
@@ -410,11 +476,11 @@ graphs_mapping = {
 # print(f'Seed: {r1}')
 # #289722
 
-graphs = {
-    'S-': nx.star_graph(21),
-    'ER-': nx.gnm_random_graph(20, 20, 289722),
-    'C-': nx.complete_graph(10),
-}
+# graphs = {
+#     'S-': nx.star_graph(21),
+#     'ER-': nx.gnm_random_graph(20, 20, 289722),
+#     'C-': nx.complete_graph(10),
+# }
 
 # BA = nx.barabasi_albert_graph(100, 2)
 # C = nx.complete_graph(20)
@@ -446,7 +512,7 @@ randomize_nodes = False
 #     )
 X, node_color, edge_color, prefix_color_mapping = convert_csv_to_graph('testgraph.csv', False)
 
-auxiliary_cutoff = 14
+auxiliary_cutoff = 15
 if True:
 
     for shape in block_sizes:
@@ -476,7 +542,7 @@ if True:
                 original_graph = np.copy(X)
                 perturbation = PerturbationExperiment(BDM(ndim=2, shape=shape, partition=partition, **params), X, metric='bdm')
 
-                deco, info_loss, difference, difference_filter, deleted_edges, auxiliary_cutoff = perturbation.deconvolve_cutoff(auxiliary_cutoff=auxiliary_cutoff)
+                deco, info_loss_values, info_loss_edges, difference, difference_filter, deleted_edges, auxiliary_cutoff = perturbation.deconvolve_cutoff(auxiliary_cutoff=auxiliary_cutoff)
 
                 # Checking
                 # print(f'Original graph is equal: {np.array_equal(original_graph, perturbation.X)}')
@@ -512,7 +578,7 @@ if True:
                 # Create Information Signature plot
                 draw_info_signature_plot(
                     f'{file_name_prefix}Information Signature and Differences',
-                    info_loss, 
+                    info_loss_values, 
                     difference, 
                     difference_filter, 
                     auxiliary_cutoff,
@@ -522,7 +588,8 @@ if True:
                 # Create Edge Grouping Plot
                 draw_edge_grouping_plot(
                     f'{file_name_prefix}Edge Grouping via Information Signature',
-                    info_loss, 
+                    info_loss_values, 
+                    info_loss_edges,
                     edge_color,
                     graphs_mapping,
                     prefix_color_mapping,
