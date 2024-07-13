@@ -1,8 +1,17 @@
 """Algorithms based on ``BDM`` objects."""
 from itertools import product
+from dataclasses import dataclass
 from random import choice
 import numpy as np
 
+@dataclass
+class DeconvolutionResult:
+    """Deconvolution Result has multiple return vC0326alues."""
+    info_loss_values: np.array
+    info_loss_edges: np.array
+    differences : np.array
+    edges_for_deletion: np.array
+    difference_filter: np.array
 
 class PerturbationExperiment:
     """Perturbation experiment class.
@@ -68,7 +77,7 @@ class PerturbationExperiment:
     def __repr__(self):
         cn = self.__class__.__name__
         bdm = str(self.bdm)[1:-1]
-        return "<{}(metric={}) with {}>".format(cn, self.metric, bdm)
+        return f"<{cn}(metric={self.metric}) with {bdm}>"
 
     @property
     def size(self):
@@ -207,7 +216,7 @@ class PerturbationExperiment:
         >>> X = np.ones((30, ), dtype=int)
         >>> perturbation = PerturbationExperiment(bdm, X)
         >>> perturbation.perturb((10, ), -1) # doctest: +FLOAT_CMP
-        26.91763012739709
+        np.float64(26.91763012739709)
         """
         old_value = self.X[idx]
         if value < 0:
@@ -258,7 +267,7 @@ class PerturbationExperiment:
         """
         if idx is None:
             indexes = [ range(k) for k in self.X.shape ]
-            idx = np.array([ x for x in product(*indexes) ], dtype=int)
+            idx = np.array(list(product(*indexes)), dtype=int)
         if values is None:
             values = np.full((idx.shape[0], ), -1, dtype=int)
         return np.apply_along_axis(
@@ -266,3 +275,83 @@ class PerturbationExperiment:
             axis=1,
             arr=np.column_stack((idx, values))
         )
+
+    def _sort_info_loss_values(self, info_loss_values, info_loss_edges):
+
+        sorted_values = np.argsort(-info_loss_values[:,0])
+        info_loss_values = info_loss_values[sorted_values]
+        info_loss_edges = info_loss_edges[sorted_values]
+
+        return info_loss_values, info_loss_edges
+
+    def _compute_differences(self, info_loss_values):
+        return np.diff(info_loss_values[:, -1]) * -1
+
+    def _filter_by_differences(self, auxiliary_cutoff, info_loss_edges, differences):
+
+        if auxiliary_cutoff is None:
+            auxiliary_cutoff = np.sqrt(
+                np.sum((differences - np.log2(2))**2) /
+                differences.shape[0]
+            )
+
+        difference_filter = list(np.isin(
+            np.arange(len(differences)),
+            np.where(abs(differences - np.log2(2)) > auxiliary_cutoff)
+        ))
+        difference_filter.extend([False])
+
+        edges_for_deletion = info_loss_edges[difference_filter]
+        edges_for_deletion = np.array([*edges_for_deletion, *edges_for_deletion[:, ::]], dtype=int)
+
+        return edges_for_deletion, difference_filter
+
+    def _process_deconvolution(self, auxiliary_cutoff, info_loss_values, info_loss_edges):
+
+        info_loss_values, info_loss_edges = self._sort_info_loss_values(info_loss_values, info_loss_edges)
+        differences = self._compute_differences(info_loss_values)
+        edges_for_deletion, difference_filter = self._filter_by_differences(
+            auxiliary_cutoff, info_loss_edges, differences
+        )
+
+        return DeconvolutionResult(
+            info_loss_values, info_loss_edges, differences, edges_for_deletion, difference_filter
+        )
+
+    def deconvolve(self, auxiliary_cutoff=None, is_directed=False, keep_changes=False):
+
+        info_loss_values = np.empty((0, 1), dtype=float)
+        info_loss_edges = np.empty((0, 2), dtype=int)
+        deleted_edge_graph = np.copy(self.X)
+
+        nonzero_edges = deleted_edge_graph if is_directed else np.triu(deleted_edge_graph)
+        nonzero_edges = np.column_stack(np.nonzero(nonzero_edges))
+        original_bdm = self.bdm.bdm(self.X)
+
+        for edge in nonzero_edges:
+
+            edges_to_perturb = ((edge[0], edge[1])) if is_directed else (edge, edge[::-1])
+
+            deleted_edge_graph[edges_to_perturb] = 0
+
+            deleted_edge_bdm = self.bdm.bdm(deleted_edge_graph)
+            info_loss =  original_bdm - deleted_edge_bdm
+
+            info_loss_edges = np.vstack((info_loss_edges, np.array([edge])))
+            info_loss_values = np.vstack((info_loss_values, np.array([info_loss])))
+
+            deleted_edge_graph[edges_to_perturb] = 1
+
+        deconvolution_result = self._process_deconvolution(
+            auxiliary_cutoff, info_loss_values, info_loss_edges
+        )
+
+        if not keep_changes:
+            deleted_edge_graph[
+                deconvolution_result.edges_for_deletion[:,0],
+                deconvolution_result.edges_for_deletion[:,1]
+            ] = 0
+            return deconvolution_result
+
+        self.run(idx=deconvolution_result.edges_for_deletion,keep_changes=keep_changes)
+        return deconvolution_result
