@@ -6,7 +6,36 @@ import numpy as np
 
 @dataclass
 class DeconvolutionResult:
-    """Deconvolution Result has multiple return vC0326alues."""
+    """A deconvolution result data class.
+
+    The deconvolution of a graph results in producing information signatures 
+    of each edge and their differences when sorted from maximum information
+    signature to minimum. Using an auxilliary cutoff, the edges for deletion 
+    can be determined if the difference of one edge from another is greater 
+    than auxilliary cutoff + log(2) (theoretically).
+
+    Attributes:
+        auxiliary_cutoff (float): 
+            The cutoff value used to determine which edges are to be deleted.
+        info_loss_values (np.array): 
+            A *Numpy* array containing the information signature loss of 
+            each edge. This is retrieved when an edge is perturbed.
+        info_loss_edges (np.array):
+            A *Numpy* array containing the edges of each loss value in 
+            ``info_loss_values``. The ith edge in this list corresponds to the
+            ith information loss value in ``info_loss_values``. 
+        differences (np.array):
+            A *Numpy* array that is produced after sorting the ``info_loss_values``
+            from maximum to minimum, these are the differences of the ith 
+            information loss value minus the i+1th information loss value.
+        edges_for_deletion (np.array):
+            A *Numpy* array that is produced based on the ``auxiliary_cutoff``
+            and if the differences of edges are greater than this cuttoff.
+        difference_filter (np.array):
+            A *Numpy* array containing ``True`` or ``False`` if the ith edge
+            in ``info_loss_edges`` is included in ``edges_for_deletion``
+    """
+    auxiliary_cutoff: float
     info_loss_values: np.array
     info_loss_edges: np.array
     differences : np.array
@@ -287,13 +316,7 @@ class PerturbationExperiment:
     def _compute_differences(self, info_loss_values):
         return np.diff(info_loss_values[:, -1]) * -1
 
-    def _filter_by_differences(self, auxiliary_cutoff, info_loss_edges, differences):
-
-        if auxiliary_cutoff is None:
-            auxiliary_cutoff = np.sqrt(
-                np.sum((differences - np.log2(2))**2) /
-                differences.shape[0]
-            )
+    def _filter_by_differences(self, auxiliary_cutoff, info_loss_edges, differences, is_directed):
 
         difference_filter = list(np.isin(
             np.arange(len(differences)),
@@ -302,24 +325,49 @@ class PerturbationExperiment:
         difference_filter.extend([False])
 
         edges_for_deletion = info_loss_edges[difference_filter]
-        edges_for_deletion = np.array([*edges_for_deletion, *edges_for_deletion[:, ::]], dtype=int)
+
+        if not is_directed:
+            edges_for_deletion = np.array([*edges_for_deletion, *edges_for_deletion[:, [1,0]]], dtype=int)
 
         return edges_for_deletion, difference_filter
 
-    def _process_deconvolution(self, auxiliary_cutoff, info_loss_values, info_loss_edges):
+    def _process_deconvolution(self, auxiliary_cutoff, info_loss_values, info_loss_edges, is_directed):
 
         info_loss_values, info_loss_edges = self._sort_info_loss_values(info_loss_values, info_loss_edges)
         differences = self._compute_differences(info_loss_values)
         edges_for_deletion, difference_filter = self._filter_by_differences(
-            auxiliary_cutoff, info_loss_edges, differences
+            auxiliary_cutoff, info_loss_edges, differences, is_directed
         )
 
         return DeconvolutionResult(
-            info_loss_values, info_loss_edges, differences, edges_for_deletion, difference_filter
+            auxiliary_cutoff, info_loss_values, info_loss_edges,
+            differences, edges_for_deletion, difference_filter
         )
 
-    def deconvolve(self, auxiliary_cutoff=None, is_directed=False, keep_changes=False):
+    def deconvolve(self, auxiliary_cutoff, is_directed=False, keep_changes=False):
+        """Run causal deconvolution.
 
+        Parameters
+        ----------
+        auxiliary_cutoff : float
+            Value to be used as the cutoff when cutting edges
+            based on their information signature differences.
+        is_directed : bool
+            If ``True`` then considers the dataset to be a directed
+            graph and thus retrieves the information signatures of all
+            edges.
+            If ``False`` then considers the dataset to be an undirected
+            graph and thus considers edges (i,j) and (j,i) the same when
+            retrieving the information signatures of each edge.
+        keep_changes: bool
+            If ``True`` then changes in the dataset are persistent,
+            so all the edges that have been cut will be applied to the dataset.
+
+        Returns
+        -------
+        DeconvolutionResult
+            a dataclass that contains different values for evaluation.
+        """
         info_loss_values = np.empty((0, 1), dtype=float)
         info_loss_edges = np.empty((0, 2), dtype=int)
         deleted_edge_graph = np.copy(self.X)
@@ -343,8 +391,11 @@ class PerturbationExperiment:
             deleted_edge_graph[edges_to_perturb] = 1
 
         deconvolution_result = self._process_deconvolution(
-            auxiliary_cutoff, info_loss_values, info_loss_edges
+            auxiliary_cutoff, info_loss_values, info_loss_edges, is_directed
         )
+
+        if deconvolution_result.edges_for_deletion.size == 0:
+            return deconvolution_result
 
         if not keep_changes:
             deleted_edge_graph[

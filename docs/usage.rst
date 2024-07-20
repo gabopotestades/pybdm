@@ -20,7 +20,7 @@ Different boundary conditions (see :doc:`/theory`) are implemented by
     # This is default so it is equivalent to
     bdm_ignore = BDM(ndim=1)
 
-    bdm_recurisve = BDM(ndim=1, partition=PartitionRecursive, min_length=2)
+    bdm_recursive = BDM(ndim=1, partition=PartitionRecursive, min_length=2)
     # Minimum size is specified as length, since only symmetric slices
     # are accepted in the case of multidimensional objects.
 

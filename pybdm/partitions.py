@@ -188,6 +188,7 @@ class PartitionPeriodic(PartitionIgnore):
 
     name = 'periodic'
 
+    # TODO: Handle 1D data
     def _extend_matrix(self, X):
 
         row_size = self.shape[0]
