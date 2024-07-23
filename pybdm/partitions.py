@@ -188,31 +188,74 @@ class PartitionPeriodic(PartitionIgnore):
 
     name = 'periodic'
 
-    # TODO: Handle 1D data
-    def _extend_matrix(self, X):
+    def _extend_2d_dataset(self, X):
 
-        row_size = self.shape[0]
-        col_size = self.shape[1]
+        row_multiplier = 0
+        col_multipler = 0
 
-        row_idx = row_size - (X.shape[0] % row_size)
-        row_idx = 0 if row_size == row_idx else row_idx
-        col_idx = col_size - (X.shape[1] % col_size)
-        col_idx = 0 if col_size == col_idx else col_idx
+        dataset_row_size = X.shape[0]
+        dataset_col_size = X.shape[1]
 
-        periodic_cols = X[:,:col_idx]
-        periodic_rows = np.hstack((X[:row_idx, :],X[:row_idx, :col_idx]))
+        block_row_size = self.shape[0]
+        block_col_size = self.shape[1]
 
-        extended_matrix = np.hstack((X,periodic_cols))
-        extended_matrix = np.vstack((extended_matrix, periodic_rows))
+        row_idx = block_row_size - (dataset_row_size % block_row_size)
+        row_idx = row_idx % block_row_size
 
-        return extended_matrix
+        col_idx = block_col_size - (dataset_col_size % block_col_size)
+        col_idx = col_idx % block_col_size
+
+        if dataset_row_size < row_idx:
+            row_multiplier = row_idx // dataset_row_size
+            row_idx = dataset_row_size
+
+        if dataset_col_size < col_idx:
+            col_multipler = col_idx // dataset_col_size
+            col_idx = col_idx % dataset_col_size
+
+        periodic_cols = np.hstack((
+            np.tile(X, col_multipler),
+            X[:,:col_idx]
+        ))
+        periodic_rows = np.hstack((
+            X[:row_idx, :],
+            np.tile(X[:row_idx, :], row_multiplier),
+            X[:row_idx, :col_idx]
+        ))
+
+        extended_dataset = np.hstack((X, periodic_cols))
+        extended_dataset = np.vstack((extended_dataset, periodic_rows))
+
+        return extended_dataset
+
+    def _extend_1d_dataset(self, X):
+
+        multiplier = 0
+        dataset_size = X.shape[0]
+        block_size = self.shape[0]
+
+        row_idx = block_size - (dataset_size % block_size)
+        row_idx = row_idx % block_size
+
+        if dataset_size < row_idx:
+            multiplier = row_idx // dataset_size
+            row_idx = row_idx % dataset_size
+
+        extended_dataset = np.hstack((
+            X, np.tile(X, multiplier), X[:row_idx]
+        ))
+
+        return extended_dataset
 
     def decompose(self, X):
         """Decompose with the 'periodic' boundary but using an extended matrix.
         .. automethod:: _Partition.decompose
         """
 
-        extended_X = self._extend_matrix(X)
+        if X.ndim == 1:
+            extended_X = self._extend_1d_dataset(X)
+        else:
+            extended_X = self._extend_2d_dataset(X)
 
         for part in decompose_dataset(extended_X, shape=self.shape, shift=0):
             if part.shape == self.shape:
