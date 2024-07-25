@@ -31,7 +31,6 @@ Different boundary conditions (see :doc:`/theory`) are implemented by
     bdm_periodic = BDM(ndim=1, partition=PartitionPeriodic)
     # This is similar to PartitionIgnore but the dataset is extended 
     # depending on the shape of the partition
-    bdm_periodic = BDM(ndim=1, partition=PartitionPeriodic)
 
 
 Normalized BDM
