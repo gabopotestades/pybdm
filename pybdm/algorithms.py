@@ -367,7 +367,27 @@ class PerturbationExperiment:
         -------
         DeconvolutionResult
             a dataclass that contains different values for evaluation.
+        
+        Examples
+        --------
+        >>> from pybdm import BDM
+        >>> bdm = BDM(ndim=2,shape=(4,4))
+        >>> X = np.array([[0, 1, 1, 1, 1, 0, 0, 0],
+        ...               [1, 0, 1, 1, 0, 0, 0, 0],
+        ...               [1, 1, 0, 1, 0, 0, 0, 0],
+        ...               [1, 1, 1, 0, 0, 0, 0, 0],
+        ...               [1, 0, 0, 0, 0, 1, 1, 1],
+        ...               [0, 0, 0, 0, 1, 0, 1, 1],
+        ...               [0, 0, 0, 0, 1, 1, 0, 1],
+        ...               [0, 0, 0, 0, 1, 1, 1, 0]])
+        >>> perturbation = PerturbationExperiment(bdm, X)
+        >>> result = perturbation.deconvolve(auxiliary_cutoff=20, is_directed=False)
+        >>> result.edges_for_deletion
+        array([[0, 4], [4, 0]])
         """
+        if self.X.ndim != 2:
+            raise ValueError('Deconvolution is only supported for 2D datasets')
+
         info_loss_values = np.empty((0, 1), dtype=float)
         info_loss_edges = np.empty((0, 2), dtype=int)
         deleted_edge_graph = np.copy(self.X)
