@@ -48,6 +48,16 @@ def test_partition_recursive(X, shape, min_length, expected):
     (np.ones((5,5)), (2,2), [ np.ones((2,2)) for _ in range(9) ]),
     (np.ones((5,5)), (3,3), [ np.ones((3,3)) for _ in range(4) ])
 ])
-def test_partition_periodic(X, shape, expected):
+def test_2d_partition_periodic(X, shape, expected):
+    partition = PartitionPeriodic(shape=shape)
+    _test_decompose(partition, X, expected)
+
+@pytest.mark.parametrize('X,shape,expected',[
+    (np.arange(0,6), (6, ), [ np.arange(0,6) ]),
+    (np.arange(0,6), (3, ), [ np.arange(0,3), np.arange(3,6) ]),
+    (np.arange(0,3), (6, ), [ np.hstack((np.arange(0,3), np.arange(0,3))) ]),
+    (np.arange(0,3), (8, ), [ np.hstack((np.arange(0,3), np.arange(0,3), np.arange(0,2))) ]),
+])
+def test_1d_partition_periodic(X, shape, expected):
     partition = PartitionPeriodic(shape=shape)
     _test_decompose(partition, X, expected)

@@ -14,7 +14,7 @@ Different boundary conditions (see :doc:`/theory`) are implemented by
 .. code-block:: python
 
     from pybdm import BDM
-    from pybdm import PartitionIgnore, PartitionRecursive, PartitionCorrelated
+    from pybdm import PartitionIgnore, PartitionRecursive, PartitionCorrelated, PartitionPeriodic
 
     bdm_ignore = BDM(ndim=1, partition=PartitionIgnore)
     # This is default so it is equivalent to
@@ -27,6 +27,11 @@ Different boundary conditions (see :doc:`/theory`) are implemented by
     bdm_correlated = BDM(ndim=1, partition=PartitionCorrelated)
     # Step-size defaults to 1, so this is equivalent to
     bdm_correlated = BDM(ndim=1, partition=PartitionCorrelated, shift=1)
+
+    bdm_periodic = BDM(ndim=1, partition=PartitionPeriodic)
+    # This is similar to PartitionIgnore but the dataset is extended 
+    # depending on the shape of the partition
+    bdm_periodic = BDM(ndim=1, partition=PartitionPeriodic)
 
 
 Normalized BDM
